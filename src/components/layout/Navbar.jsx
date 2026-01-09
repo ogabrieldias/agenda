@@ -4,17 +4,32 @@ import { onAuthStateChanged, getAuth, signOut } from "firebase/auth";
 
 function Navbar() {
   const [user, setUser] = useState(null);
+  const [selectedTheme, setSelectedTheme] = useState("light"); // tema padrão
   const auth = getAuth();
-  const navigate = useNavigate(); // hook para redirecionar
+  const navigate = useNavigate();
 
   useEffect(() => {
-    // Escuta mudanças de login/logout no Firebase
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
     });
-
     return () => unsubscribe();
   }, [auth]);
+
+  // Função para trocar tema
+  const changeTheme = (theme) => {
+    setSelectedTheme(theme);
+    document.querySelector("html").setAttribute("data-theme", theme);
+    localStorage.setItem("theme", theme); // salva no navegador
+  };
+
+  // Carregar tema salvo no localStorage
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("theme");
+    if (savedTheme) {
+      setSelectedTheme(savedTheme);
+      document.querySelector("html").setAttribute("data-theme", savedTheme);
+    }
+  }, []);
 
   return (
     <div className="navbar bg-base-100 shadow-sm">
@@ -28,12 +43,7 @@ function Navbar() {
               viewBox="0 0 24 24"
               stroke="currentColor"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M4 6h16M4 12h16M4 18h7"
-              />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h7" />
             </svg>
           </div>
           <ul
@@ -65,13 +75,29 @@ function Navbar() {
         </Link>
       </div>
 
-      <div className="navbar-end">
+      <div className="navbar-end flex items-center gap-2">
+        {/* Dropdown de temas */}
+        <div className="dropdown dropdown-end">
+          <label tabIndex={0} className="btn btn-ghost">
+            Tema: <span className="font-bold">{selectedTheme}</span>
+          </label>
+          <ul
+            tabIndex={0}
+            className="menu dropdown-content bg-base-100 rounded-box w-40 p-2 shadow"
+          >
+            <li><button onClick={() => changeTheme("light")}>🌞 Light</button></li>
+            <li><button onClick={() => changeTheme("luxury")}>💎 Luxury</button></li>
+            <li><button onClick={() => changeTheme("synthwave")}>🎶 Synthwave</button></li>
+            <li><button onClick={() => changeTheme("forest")}>🌲 Forest</button></li>
+          </ul>
+        </div>
+
         {user && (
           <button
             className="btn btn-ghost"
             onClick={async () => {
-              await signOut(auth);   // encerra sessão no Firebase
-              navigate("/login");    // redireciona para Login.jsx
+              await signOut(auth);
+              navigate("/login");
             }}
           >
             Logout
