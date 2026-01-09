@@ -1,10 +1,11 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { onAuthStateChanged, getAuth, signOut } from "firebase/auth";
 
 function Navbar() {
   const [user, setUser] = useState(null);
   const auth = getAuth();
+  const navigate = useNavigate(); // hook para redirecionar
 
   useEffect(() => {
     // Escuta mudanças de login/logout no Firebase
@@ -68,8 +69,9 @@ function Navbar() {
         {user && (
           <button
             className="btn btn-ghost"
-            onClick={() => {
-              signOut(auth); // faz logout no Firebase
+            onClick={async () => {
+              await signOut(auth);   // encerra sessão no Firebase
+              navigate("/login");    // redireciona para Login.jsx
             }}
           >
             Logout
