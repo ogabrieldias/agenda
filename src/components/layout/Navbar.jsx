@@ -1,19 +1,19 @@
 import { Link } from "react-router-dom";
 import { useState, useEffect } from "react";
+import { onAuthStateChanged, getAuth, signOut } from "firebase/auth";
 
 function Navbar() {
-  // guarda o token em estado
-  const [token, setToken] = useState(localStorage.getItem("token"));
+  const [user, setUser] = useState(null);
+  const auth = getAuth();
 
-  // escuta mudanças no localStorage (ex.: login/logout)
   useEffect(() => {
-    const handleStorageChange = () => {
-      setToken(localStorage.getItem("token"));
-    };
+    // Escuta mudanças de login/logout no Firebase
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
 
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
+    return () => unsubscribe();
+  }, [auth]);
 
   return (
     <div className="navbar bg-base-100 shadow-sm">
@@ -39,37 +39,19 @@ function Navbar() {
             tabIndex="-1"
             className="menu menu-sm dropdown-content bg-base-100 rounded-box z-1 mt-3 w-52 p-2 shadow"
           >
-            {/* Links visíveis apenas se logado */}
-            {token ? (
+            {user ? (
               <>
-                <li>
-                  <Link to="/calendar">Calendário</Link>
-                </li>
-                <li>
-                  <Link to="/agendamento">Agendamento</Link>
-                </li>
-                <li>
-                  <Link to="/clientes">Clientes</Link>
-                </li>
-                <li>
-                  <Link to="/profissionais">Profissionais</Link>
-                </li>
-                <li>
-                  <Link to="/servicos">Serviços</Link>
-                </li>
-                <li>
-                  <Link to="/dashboard">Relatório</Link>
-                </li>
+                <li><Link to="/calendar">Calendário</Link></li>
+                <li><Link to="/agendamento">Agendamento</Link></li>
+                <li><Link to="/clientes">Clientes</Link></li>
+                <li><Link to="/profissionais">Profissionais</Link></li>
+                <li><Link to="/servicos">Serviços</Link></li>
+                <li><Link to="/dashboard">Relatório</Link></li>
               </>
             ) : (
               <>
-                <li>
-                  <Link to="/register">Register</Link>
-                </li>
-                <li>
-                  <Link to="/login">Login</Link>
-                </li>
-                
+                <li><Link to="/register">Register</Link></li>
+                <li><Link to="/login">Login</Link></li>
               </>
             )}
           </ul>
@@ -83,13 +65,11 @@ function Navbar() {
       </div>
 
       <div className="navbar-end">
-        {token && (
+        {user && (
           <button
             className="btn btn-ghost"
             onClick={() => {
-              localStorage.removeItem("token");
-              setToken(null); // atualiza estado imediatamente
-              window.location.href = "/login"; // força logout
+              signOut(auth); // faz logout no Firebase
             }}
           >
             Logout
