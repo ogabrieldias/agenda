@@ -1,4 +1,14 @@
 import { useState, useEffect } from "react";
+import { auth, db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  doc,
+  collection,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  getDocs
+} from "firebase/firestore";
 
 export default function Agendamento() {
   const [agendamentos, setAgendamentos] = useState([]);
@@ -8,67 +18,91 @@ export default function Agendamento() {
   const [clienteId, setClienteId] = useState("");
   const [profissionalId, setProfissionalId] = useState("");
   const [servicoId, setServicoId] = useState("");
-  const [status, setStatus] = useState("pendente"); // novo campo
+  const [status, setStatus] = useState("pendente");
   const [clientes, setClientes] = useState([]);
   const [profissionais, setProfissionais] = useState([]);
   const [servicos, setServicos] = useState([]);
   const [editId, setEditId] = useState(null);
+  const [userUid, setUserUid] = useState(null);
 
+  // 🔎 Recupera usuário logado e carrega dados das subcoleções
   useEffect(() => {
-    const dadosAgendamentos = localStorage.getItem("agendamentos");
-    if (dadosAgendamentos) setAgendamentos(JSON.parse(dadosAgendamentos));
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserUid(user.uid);
+        const userDoc = doc(db, "usuarios", user.uid);
 
-    const dadosClientes = localStorage.getItem("clientes");
-    if (dadosClientes) setClientes(JSON.parse(dadosClientes));
+        const clientesSnap = await getDocs(collection(userDoc, "clientes"));
+        setClientes(clientesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
-    const dadosProfissionais = localStorage.getItem("profissionais");
-    if (dadosProfissionais) setProfissionais(JSON.parse(dadosProfissionais));
+        const profSnap = await getDocs(collection(userDoc, "profissionais"));
+        setProfissionais(profSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
-    const dadosServicos = localStorage.getItem("servicos");
-    if (dadosServicos) setServicos(JSON.parse(dadosServicos));
+        const servSnap = await getDocs(collection(userDoc, "servicos"));
+        setServicos(servSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+
+        const agendSnap = await getDocs(collection(userDoc, "agendamentos"));
+        setAgendamentos(agendSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } else {
+        setUserUid(null);
+        setClientes([]);
+        setProfissionais([]);
+        setServicos([]);
+        setAgendamentos([]);
+      }
+    });
+    return () => unsub();
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("agendamentos", JSON.stringify(agendamentos));
-  }, [agendamentos]);
-
-  const adicionarOuEditarAgendamento = (e) => {
+  const adicionarOuEditarAgendamento = async (e) => {
     e.preventDefault();
-
     if (!titulo || !data || !hora || !clienteId || !profissionalId || !servicoId) {
       alert("Preencha todos os campos!");
       return;
     }
 
-    if (editId) {
-      const atualizado = agendamentos.map((a) =>
-        a.id === editId
-          ? { ...a, titulo, data, hora, clienteId, profissionalId, servicoId, status }
-          : a
-      );
-      setAgendamentos(atualizado);
-      setEditId(null);
-    } else {
-      const novo = {
-        id: Date.now(),
-        titulo,
-        data,
-        hora,
-        clienteId,
-        profissionalId,
-        servicoId,
-        status,
-      };
-      setAgendamentos([...agendamentos, novo]);
-    }
+    try {
+      const userDoc = doc(db, "usuarios", userUid);
+      const agendRef = collection(userDoc, "agendamentos");
 
-    setTitulo(""); setData(""); setHora("");
-    setClienteId(""); setProfissionalId(""); setServicoId("");
-    setStatus("pendente");
+      if (editId) {
+        const agendDoc = doc(agendRef, editId);
+        await updateDoc(agendDoc, { titulo, data, hora, clienteId, profissionalId, servicoId, status });
+        setAgendamentos(agendamentos.map((a) =>
+          a.id === editId ? { ...a, titulo, data, hora, clienteId, profissionalId, servicoId, status } : a
+        ));
+        setEditId(null);
+      } else {
+        const novoDoc = await addDoc(agendRef, {
+          titulo,
+          data,
+          hora,
+          clienteId,
+          profissionalId,
+          servicoId,
+          status,
+          createdAt: new Date()
+        });
+        setAgendamentos([...agendamentos, { id: novoDoc.id, titulo, data, hora, clienteId, profissionalId, servicoId, status }]);
+      }
+
+      setTitulo(""); setData(""); setHora("");
+      setClienteId(""); setProfissionalId(""); setServicoId("");
+      setStatus("pendente");
+    } catch (error) {
+      console.error("Erro ao salvar agendamento:", error);
+    }
   };
 
-  const removerAgendamento = (id) => {
-    setAgendamentos(agendamentos.filter((a) => a.id !== id));
+  const removerAgendamento = async (id) => {
+    try {
+      const userDoc = doc(db, "usuarios", userUid);
+      const agendDoc = doc(userDoc, "agendamentos", id);
+      await deleteDoc(agendDoc);
+      setAgendamentos(agendamentos.filter((a) => a.id !== id));
+    } catch (error) {
+      console.error("Erro ao remover agendamento:", error);
+    }
   };
 
   const iniciarEdicao = (agendamento) => {
@@ -89,24 +123,28 @@ export default function Agendamento() {
     setEditId(null);
   };
 
-  // Atualiza status diretamente
-  const atualizarStatus = (id, novoStatus) => {
-    const atualizado = agendamentos.map((a) =>
-      a.id === id ? { ...a, status: novoStatus } : a
-    );
-    setAgendamentos(atualizado);
+  const atualizarStatus = async (id, novoStatus) => {
+    try {
+      const userDoc = doc(db, "usuarios", userUid);
+      const agendDoc = doc(userDoc, "agendamentos", id);
+      await updateDoc(agendDoc, { status: novoStatus });
+      setAgendamentos(agendamentos.map((a) =>
+        a.id === id ? { ...a, status: novoStatus } : a
+      ));
+    } catch (error) {
+      console.error("Erro ao atualizar status:", error);
+    }
   };
 
-  // Estado para o filtro
-  const [filtroCampo, setFiltroCampo] = useState("titulo"); // campo padrão 
-  const [filtroValor, setFiltroValor] = useState(""); // valor digitado
+  // Estados para filtro
+  const [filtroCampo, setFiltroCampo] = useState("titulo");
+  const [filtroValor, setFiltroValor] = useState("");
 
-  // Função para formatar a data manualmente (evita bug de fuso horário) 
-  function formatarDataBR(dataStr) { 
-    if (!dataStr) return ""; 
+  function formatarDataBR(dataStr) {
+    if (!dataStr) return "";
     const [ano, mes, dia] = dataStr.split("-");
-    return `${dia}/${mes}/${ano}`; }
-
+    return `${dia}/${mes}/${ano}`;
+  }
 
   return (
     <div className="p-6">
@@ -121,7 +159,7 @@ export default function Agendamento() {
           value={hora} onChange={(e) => setHora(e.target.value)} />
 
         {clientes.length > 0 ? (
-          <select value={clienteId} onChange={(e) => setClienteId(Number(e.target.value))}
+          <select value={clienteId} onChange={(e) => setClienteId(e.target.value)}
             className="select select-bordered w-full">
             <option value="">Selecione o Cliente</option>
             {clientes.map(c => (
@@ -131,7 +169,7 @@ export default function Agendamento() {
         ) : <p className="text-warning">⚠️ Cadastre clientes antes de agendar.</p>}
 
         {profissionais.length > 0 ? (
-          <select value={profissionalId} onChange={(e) => setProfissionalId(Number(e.target.value))}
+          <select value={profissionalId} onChange={(e) => setProfissionalId(e.target.value)}
             className="select select-bordered w-full">
             <option value="">Selecione o Profissional</option>
             {profissionais.map(p => (
@@ -141,7 +179,7 @@ export default function Agendamento() {
         ) : <p className="text-warning">⚠️ Cadastre profissionais antes de agendar.</p>}
 
         {servicos.length > 0 ? (
-          <select value={servicoId} onChange={(e) => setServicoId(Number(e.target.value))}
+          <select value={servicoId} onChange={(e) => setServicoId(e.target.value)}
             className="select select-bordered w-full">
             <option value="">Selecione o Serviço</option>
             {servicos.map(s => (
@@ -150,7 +188,6 @@ export default function Agendamento() {
           </select>
         ) : <p className="text-warning">⚠️ Cadastre serviços antes de agendar.</p>}
 
-        {/* Novo campo de status */}
         <select value={status} onChange={(e) => setStatus(e.target.value)}
           className="select select-bordered w-full">
           <option value="pendente">Pendente</option>
@@ -163,8 +200,13 @@ export default function Agendamento() {
           <button type="submit" className="btn btn-primary flex-1">
             {editId ? "Salvar Edição" : "Adicionar Agendamento"}
           </button>
+
           {editId && (
-            <button type="button" className="btn btn-secondary flex-1" onClick={cancelarEdicao}>
+            <button
+              type="button"
+              className="btn btn-secondary flex-1"
+              onClick={cancelarEdicao}
+            >
               Voltar
             </button>
           )}
@@ -199,9 +241,9 @@ export default function Agendamento() {
       <ul className="space-y-2">
         {agendamentos
           .filter((a) => {
-            const cliente = clientes.find(c => c.id === a.clienteId)?.nome || "";
-            const profissional = profissionais.find(p => p.id === a.profissionalId)?.nome || "";
-            const servico = servicos.find(s => s.id === a.servicoId)?.nome || "";
+            const cliente = clientes.find((c) => c.id === a.clienteId)?.nome || "";
+            const profissional = profissionais.find((p) => p.id === a.profissionalId)?.nome || "";
+            const servico = servicos.find((s) => s.id === a.servicoId)?.nome || "";
 
             switch (filtroCampo) {
               case "titulo":
@@ -223,40 +265,55 @@ export default function Agendamento() {
             }
           })
           .map((a) => {
-            const cliente = clientes.find(c => c.id === a.clienteId);
-            const profissional = profissionais.find(p => p.id === a.profissionalId);
-            const servico = servicos.find(s => s.id === a.servicoId);
+            const cliente = clientes.find((c) => c.id === a.clienteId);
+            const profissional = profissionais.find((p) => p.id === a.profissionalId);
+            const servico = servicos.find((s) => s.id === a.servicoId);
 
             return (
-              <li key={a.id} className="flex justify-between items-center p-3 bg-base-200 rounded">
+              <li
+                key={a.id}
+                className="flex justify-between items-center p-3 bg-base-200 rounded"
+              >
                 <span>
                   {a.titulo} — {formatarDataBR(a.data)} às {a.hora}
                   <br />
-                  Cliente: {cliente ? cliente.nome : "Não definido"} | Profissional: {profissional ? profissional.nome : "Não definido"}
+                  Cliente: {cliente ? cliente.nome : "Não definido"} | Profissional:{" "}
+                  {profissional ? profissional.nome : "Não definido"}
                   <br />
-                  Serviço: {servico ? `${servico.nome} — ${servico.duracao} — R$ ${servico.preco}` : "Não definido"}
+                  Serviço:{" "}
+                  {servico
+                    ? `${servico.nome} — ${servico.duracao} — R$ ${servico.preco}`
+                    : "Não definido"}
                   {/* Botões de status coloridos */}
                   <div className="flex gap-2 pt-[15px]">
                     <button
-                      className={`btn btn-xs ${a.status === "pendente" ? "btn-warning" : "btn-outline"}`}
+                      className={`btn btn-xs ${
+                        a.status === "pendente" ? "btn-warning" : "btn-outline"
+                      }`}
                       onClick={() => atualizarStatus(a.id, "pendente")}
                     >
                       Pendente
                     </button>
                     <button
-                      className={`btn btn-xs ${a.status === "confirmado" ? "btn-info" : "btn-outline"}`}
+                      className={`btn btn-xs ${
+                        a.status === "confirmado" ? "btn-info" : "btn-outline"
+                      }`}
                       onClick={() => atualizarStatus(a.id, "confirmado")}
                     >
                       Confirmado
                     </button>
                     <button
-                      className={`btn btn-xs ${a.status === "concluido" ? "btn-success" : "btn-outline"}`}
+                      className={`btn btn-xs ${
+                        a.status === "concluido" ? "btn-success" : "btn-outline"
+                      }`}
                       onClick={() => atualizarStatus(a.id, "concluido")}
                     >
                       Concluído
                     </button>
                     <button
-                      className={`btn btn-xs ${a.status === "cancelado" ? "btn-error" : "btn-outline"}`}
+                      className={`btn btn-xs ${
+                        a.status === "cancelado" ? "btn-error" : "btn-outline"
+                      }`}
                       onClick={() => atualizarStatus(a.id, "cancelado")}
                     >
                       Cancelado
@@ -265,9 +322,19 @@ export default function Agendamento() {
                 </span>
                 <div className="flex flex-col gap-2">
                   <div className="flex gap-2">
-                    <button className="btn btn-warning btn-sm" onClick={() => iniciarEdicao(a)}>Editar</button>
+                    <button
+                      className="btn btn-warning btn-sm"
+                      onClick={() => iniciarEdicao(a)}
+                    >
+                      Editar
+                    </button>
                     {editId !== a.id && (
-                      <button className="btn btn-error btn-sm" onClick={() => removerAgendamento(a.id)}>Remover</button>
+                      <button
+                        className="btn btn-error btn-sm"
+                        onClick={() => removerAgendamento(a.id)}
+                      >
+                        Remover
+                      </button>
                     )}
                   </div>
                 </div>

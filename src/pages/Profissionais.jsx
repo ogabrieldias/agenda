@@ -1,35 +1,72 @@
 import { useState, useEffect } from "react";
+import { auth, db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  doc,
+  collection,
+  addDoc,
+  deleteDoc,
+  getDocs
+} from "firebase/firestore";
 
 export default function Profissionais() {
   const [profissionais, setProfissionais] = useState([]);
   const [nome, setNome] = useState("");
   const [especialidade, setEspecialidade] = useState("");
-
-  useEffect(() => {
-    const dados = localStorage.getItem("profissionais");
-    if (dados) setProfissionais(JSON.parse(dados));
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("profissionais", JSON.stringify(profissionais));
-  }, [profissionais]);
-
-  const salvarProfissional = (e) => {
-    e.preventDefault();
-    if (!nome.trim()) return;
-    const novo = { id: Date.now(), nome, especialidade };
-    setProfissionais([...profissionais, novo]);
-    setNome(""); setEspecialidade("");
-  };
-
-  const removerProfissional = (id) => {
-    setProfissionais(profissionais.filter(p => p.id !== id));
-  };
+  const [userUid, setUserUid] = useState(null);
 
   // Estado para filtro
-  const [filtroCampo, setFiltroCampo] = useState("nome");   // campo padrão
-  const [filtroValor, setFiltroValor] = useState("");       // valor digitado
+  const [filtroCampo, setFiltroCampo] = useState("nome");
+  const [filtroValor, setFiltroValor] = useState("");
 
+  // 🔎 Recupera usuário logado e carrega profissionais da subcoleção
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserUid(user.uid);
+        const userDoc = doc(db, "usuarios", user.uid);
+        const snap = await getDocs(collection(userDoc, "profissionais"));
+        setProfissionais(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } else {
+        setUserUid(null);
+        setProfissionais([]);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const salvarProfissional = async (e) => {
+    e.preventDefault();
+    if (!nome.trim()) return;
+
+    try {
+      const userDoc = doc(db, "usuarios", userUid);
+      const profRef = collection(userDoc, "profissionais");
+
+      const novoDoc = await addDoc(profRef, {
+        nome,
+        especialidade,
+        createdAt: new Date()
+      });
+
+      setProfissionais([...profissionais, { id: novoDoc.id, nome, especialidade }]);
+      setNome("");
+      setEspecialidade("");
+    } catch (error) {
+      console.error("Erro ao salvar profissional:", error);
+    }
+  };
+
+  const removerProfissional = async (id) => {
+    try {
+      const userDoc = doc(db, "usuarios", userUid);
+      const profDoc = doc(userDoc, "profissionais", id);
+      await deleteDoc(profDoc);
+      setProfissionais(profissionais.filter((p) => p.id !== id));
+    } catch (error) {
+      console.error("Erro ao remover profissional:", error);
+    }
+  };
 
   return (
     <div className="p-6">
@@ -87,11 +124,15 @@ export default function Profissionais() {
           .map((p) => (
             <li key={p.id} className="flex justify-between items-center p-2 bg-base-200 rounded">
               <span>{p.nome} — {p.especialidade}</span>
-              <button className="btn btn-error btn-sm" onClick={() => removerProfissional(p.id)}>Remover</button>
+              <button
+                className="btn btn-error btn-sm"
+                onClick={() => removerProfissional(p.id)}
+              >
+                Remover
+              </button>
             </li>
           ))}
       </ul>
-
     </div>
   );
 }

@@ -1,4 +1,14 @@
 import { useState, useEffect } from "react";
+import { auth, db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  doc,
+  collection,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  getDocs
+} from "firebase/firestore";
 
 export default function Clientes() {
   const [clientes, setClientes] = useState([]);
@@ -8,34 +18,38 @@ export default function Clientes() {
   const [observacoes, setObservacoes] = useState("");
   const [erro, setErro] = useState("");
   const [editando, setEditando] = useState(null);
+  const [userUid, setUserUid] = useState(null);
 
+  // 🔎 Recupera usuário logado e carrega clientes da subcoleção
   useEffect(() => {
-    const dadosClientes = localStorage.getItem("clientes");
-    if (dadosClientes) setClientes(JSON.parse(dadosClientes));
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserUid(user.uid);
+        const userDoc = doc(db, "usuarios", user.uid);
+        const snap = await getDocs(collection(userDoc, "clientes"));
+        setClientes(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } else {
+        setUserUid(null);
+        setClientes([]);
+      }
+    });
+    return () => unsub();
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("clientes", JSON.stringify(clientes));
-  }, [clientes]);
-
-  // Função para aplicar máscara no telefone no formato +55 XX XXXXX-XXXX
+  // Função para aplicar máscara no telefone
   const formatarTelefone = (valor) => {
     let numeros = valor.replace(/\D/g, "");
-
     if (!numeros.startsWith("55")) {
       numeros = "55" + numeros;
     }
-
     numeros = numeros.slice(0, 13);
-
     if (numeros.length >= 12) {
       return `+55 ${numeros.slice(2, 4)} ${numeros.slice(4, 9)}-${numeros.slice(9, 13)}`;
     }
-
     return "+55 " + numeros.slice(2);
   };
 
-  const salvarCliente = (e) => {
+  const salvarCliente = async (e) => {
     e.preventDefault();
     setErro("");
 
@@ -54,27 +68,47 @@ export default function Clientes() {
       return;
     }
 
-    if (editando) {
-      const atualizados = clientes.map((c) =>
-        c.id === editando
-          ? { ...c, nome, telefone, email, observacoes }
-          : c
-      );
-      setClientes(atualizados);
-      setEditando(null);
-    } else {
-      const novo = { id: Date.now(), nome, telefone, email, observacoes };
-      setClientes([...clientes, novo]);
-    }
+    try {
+      const userDoc = doc(db, "usuarios", userUid);
+      const clientesRef = collection(userDoc, "clientes");
 
-    setNome("");
-    setTelefone("");
-    setEmail("");
-    setObservacoes("");
+      if (editando) {
+        const clienteDoc = doc(clientesRef, editando);
+        await updateDoc(clienteDoc, { nome, telefone, email, observacoes });
+        setClientes(clientes.map((c) =>
+          c.id === editando ? { ...c, nome, telefone, email, observacoes } : c
+        ));
+        setEditando(null);
+      } else {
+        const novoDoc = await addDoc(clientesRef, {
+          nome,
+          telefone,
+          email,
+          observacoes,
+          createdAt: new Date()
+        });
+        setClientes([...clientes, { id: novoDoc.id, nome, telefone, email, observacoes }]);
+      }
+
+      setNome("");
+      setTelefone("");
+      setEmail("");
+      setObservacoes("");
+    } catch (error) {
+      console.error("Erro ao salvar cliente:", error);
+      setErro("Erro ao salvar cliente. Verifique as regras do Firestore.");
+    }
   };
 
-  const removerCliente = (id) => {
-    setClientes(clientes.filter((c) => c.id !== id));
+  const removerCliente = async (id) => {
+    try {
+      const userDoc = doc(db, "usuarios", userUid);
+      const clienteDoc = doc(userDoc, "clientes", id);
+      await deleteDoc(clienteDoc);
+      setClientes(clientes.filter((c) => c.id !== id));
+    } catch (error) {
+      console.error("Erro ao remover cliente:", error);
+    }
   };
 
   const editarCliente = (cliente) => {
@@ -95,9 +129,8 @@ export default function Clientes() {
   };
 
   // Estados para o filtro
-  const [filtroCampo, setFiltroCampo] = useState("nome");   // campo padrão
-  const [filtroValor, setFiltroValor] = useState("");       // valor digitado
-
+  const [filtroCampo, setFiltroCampo] = useState("nome");
+  const [filtroValor, setFiltroValor] = useState("");
 
   return (
     <div className="p-6">
@@ -126,7 +159,6 @@ export default function Clientes() {
           onChange={(e) => setEmail(e.target.value)}
           className="input input-bordered w-full"
         />
-
         <textarea
           placeholder="Observações"
           value={observacoes}
@@ -215,7 +247,6 @@ export default function Clientes() {
             </li>
           ))}
       </ul>
-
     </div>
   );
 }

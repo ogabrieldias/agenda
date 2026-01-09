@@ -11,6 +11,10 @@ import {
   LinearScale,
 } from "chart.js";
 
+import { auth, db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, collection, getDocs } from "firebase/firestore";
+
 ChartJS.register(Title, Tooltip, Legend, ArcElement, BarElement, CategoryScale, LinearScale);
 
 export default function RelatoriosDashboard() {
@@ -18,19 +22,35 @@ export default function RelatoriosDashboard() {
   const [clientes, setClientes] = useState([]);
   const [profissionais, setProfissionais] = useState([]);
   const [servicos, setServicos] = useState([]);
+  const [userUid, setUserUid] = useState(null);
 
+  // 🔎 Carrega dados das subcoleções do usuário logado
   useEffect(() => {
-    const dadosAgendamentos = localStorage.getItem("agendamentos");
-    if (dadosAgendamentos) setAgendamentos(JSON.parse(dadosAgendamentos));
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserUid(user.uid);
+        const userDoc = doc(db, "usuarios", user.uid);
 
-    const dadosClientes = localStorage.getItem("clientes");
-    if (dadosClientes) setClientes(JSON.parse(dadosClientes));
+        const agendSnap = await getDocs(collection(userDoc, "agendamentos"));
+        setAgendamentos(agendSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
-    const dadosProfissionais = localStorage.getItem("profissionais");
-    if (dadosProfissionais) setProfissionais(JSON.parse(dadosProfissionais));
+        const clientesSnap = await getDocs(collection(userDoc, "clientes"));
+        setClientes(clientesSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
 
-    const dadosServicos = localStorage.getItem("servicos");
-    if (dadosServicos) setServicos(JSON.parse(dadosServicos));
+        const profSnap = await getDocs(collection(userDoc, "profissionais"));
+        setProfissionais(profSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+
+        const servSnap = await getDocs(collection(userDoc, "servicos"));
+        setServicos(servSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } else {
+        setUserUid(null);
+        setAgendamentos([]);
+        setClientes([]);
+        setProfissionais([]);
+        setServicos([]);
+      }
+    });
+    return () => unsub();
   }, []);
 
   // Filtra agendamentos do mês atual
@@ -61,7 +81,7 @@ export default function RelatoriosDashboard() {
   });
 
   const servicoLabels = Object.keys(servicoContagem).map(
-    (id) => servicos.find((s) => s.id === Number(id))?.nome || "Desconhecido"
+    (id) => servicos.find((s) => s.id === id)?.nome || "Desconhecido"
   );
   const servicoData = Object.values(servicoContagem);
 
@@ -75,7 +95,7 @@ export default function RelatoriosDashboard() {
   });
 
   const profissionalLabels = Object.keys(profissionalContagem).map(
-    (id) => profissionais.find((p) => p.id === Number(id))?.nome || "Desconhecido"
+    (id) => profissionais.find((p) => p.id === id)?.nome || "Desconhecido"
   );
   const profissionalData = Object.values(profissionalContagem);
 

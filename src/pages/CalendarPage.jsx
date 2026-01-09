@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Calendar, dateFnsLocalizer } from "react-big-calendar";
 import { format, parse, startOfWeek, getDay } from "date-fns";
 import ptBR from "date-fns/locale/pt-BR";
 import "react-big-calendar/lib/css/react-big-calendar.css";
+
+// Firebase
+import { auth, db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, collection, getDocs } from "firebase/firestore";
 
 const locales = { "pt-BR": ptBR };
 
@@ -17,17 +22,52 @@ const localizer = dateFnsLocalizer({
 export default function CalendarPage() {
   const [date, setDate] = useState(new Date());
   const [view, setView] = useState("month");
+  const [nomeUsuario, setNomeUsuario] = useState("");
 
   // filtros
   const [filtroProfissional, setFiltroProfissional] = useState("");
   const [filtroServico, setFiltroServico] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("");
 
-  // Carrega dados
-  const agendamentos = JSON.parse(localStorage.getItem("agendamentos")) || [];
-  const clientes = JSON.parse(localStorage.getItem("clientes")) || [];
-  const profissionais = JSON.parse(localStorage.getItem("profissionais")) || [];
-  const servicos = JSON.parse(localStorage.getItem("servicos")) || [];
+  // estados para dados do Firestore
+  const [agendamentos, setAgendamentos] = useState([]);
+  const [clientes, setClientes] = useState([]);
+  const [profissionais, setProfissionais] = useState([]);
+  const [servicos, setServicos] = useState([]);
+
+  // 🔎 Recupera usuário logado e carrega dados das subcoleções
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setNomeUsuario(user.displayName || user.email);
+
+        const userDoc = doc(db, "usuarios", user.uid);
+
+        // clientes
+        const clientesSnap = await getDocs(collection(userDoc, "clientes"));
+        setClientes(clientesSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        // profissionais
+        const profSnap = await getDocs(collection(userDoc, "profissionais"));
+        setProfissionais(profSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        // servicos
+        const servSnap = await getDocs(collection(userDoc, "servicos"));
+        setServicos(servSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+
+        // agendamentos
+        const agendSnap = await getDocs(collection(userDoc, "agendamentos"));
+        setAgendamentos(agendSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+      } else {
+        setNomeUsuario("");
+        setClientes([]);
+        setProfissionais([]);
+        setServicos([]);
+        setAgendamentos([]);
+      }
+    });
+    return () => unsub();
+  }, []);
 
   // Converte agendamentos em eventos
   const events = agendamentos.map((a) => {
@@ -39,7 +79,9 @@ export default function CalendarPage() {
     const servico = servicos.find((s) => s.id === a.servicoId);
 
     return {
-      title: `${a.titulo} — ${cliente ? cliente.nome : "Cliente"} atendido por ${profissional ? profissional.nome : "Profissional"} — Serviço: ${servico ? servico.nome : "Não definido"} às ${a.hora}`,
+      title: `${a.titulo} — ${cliente ? cliente.nome : "Cliente"} atendido por ${
+        profissional ? profissional.nome : "Profissional"
+      } — Serviço: ${servico ? servico.nome : "Não definido"} às ${a.hora}`,
       start,
       end,
       status: a.status,
@@ -52,14 +94,20 @@ export default function CalendarPage() {
   });
 
   // aplica filtros
-  const eventsFiltrados = events.filter((e) =>
-    (!filtroProfissional || e.profissionalId === Number(filtroProfissional)) &&
-    (!filtroServico || e.servicoId === Number(filtroServico)) &&
-    (!filtroStatus || e.status === filtroStatus)
+  const eventsFiltrados = events.filter(
+    (e) =>
+      (!filtroProfissional || e.profissionalId === filtroProfissional) &&
+      (!filtroServico || e.servicoId === filtroServico) &&
+      (!filtroStatus || e.status === filtroStatus)
   );
 
   return (
     <div className="p-6">
+      {/* Mensagem de boas-vindas */}
+      {nomeUsuario && (
+        <h2 className="text-xl mb-2">Bem-vindo, {nomeUsuario}</h2>
+      )}
+
       <h1 className="text-2xl font-bold mb-4">Calendário de Agendamentos</h1>
 
       {/* Filtros */}
@@ -71,7 +119,9 @@ export default function CalendarPage() {
         >
           <option value="">Todos os profissionais</option>
           {profissionais.map((p) => (
-            <option key={p.id} value={p.id}>{p.nome}</option>
+            <option key={p.id} value={p.id}>
+              {p.nome}
+            </option>
           ))}
         </select>
 
@@ -82,7 +132,9 @@ export default function CalendarPage() {
         >
           <option value="">Todos os serviços</option>
           {servicos.map((s) => (
-            <option key={s.id} value={s.id}>{s.nome}</option>
+            <option key={s.id} value={s.id}>
+              {s.nome}
+            </option>
           ))}
         </select>
 

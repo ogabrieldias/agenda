@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import SHA256 from "crypto-js/sha256";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "../firebase";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -8,27 +9,28 @@ export default function Login() {
   const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErro("");
 
-    // pega lista de usuários cadastrados
-    const usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, senha);
+      const user = userCredential.user;
 
-    const emailNorm = email.trim().toLowerCase();
-    const senhaHash = SHA256(senha).toString(); // gera hash da senha digitada
-
-    // procura usuário
-    const usuario = usuarios.find(
-      (u) => u.email === emailNorm && u.senha === senhaHash
-    );
-
-    if (usuario) {
-      localStorage.setItem("token", "fake-token"); // marca login
+      console.log("Usuário logado:", user);
       navigate("/dashboard");
-      window.location.reload(); // força Navbar a re-renderizar
-    } else {
-      setErro("Usuário ou senha incorretos. Tente novamente.");
+    } catch (error) {
+      console.error("Erro Firebase:", error.code, error.message);
+
+      if (error.code === "auth/user-not-found") {
+        setErro("Usuário não encontrado.");
+      } else if (error.code === "auth/wrong-password") {
+        setErro("Senha incorreta.");
+      } else if (error.code === "auth/invalid-email") {
+        setErro("Formato de e-mail inválido.");
+      } else {
+        setErro("Erro ao logar. Tente novamente.");
+      }
     }
   };
 
@@ -67,13 +69,6 @@ export default function Login() {
             >
               Cadastrar
             </button>
-            {/* <button
-              type="button"
-              onClick={() => localStorage.removeItem("usuarios")}
-              className="btn btn-error w-full"
-            >
-              Excluir todos os usuários
-            </button> */}
           </form>
         </div>
       </div>

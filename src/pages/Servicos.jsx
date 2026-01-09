@@ -1,34 +1,74 @@
 import { useState, useEffect } from "react";
+import { auth, db } from "../firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  doc,
+  collection,
+  addDoc,
+  deleteDoc,
+  getDocs
+} from "firebase/firestore";
 
 export default function Servicos() {
   const [servicos, setServicos] = useState([]);
   const [nome, setNome] = useState("");
   const [duracao, setDuracao] = useState("");
   const [preco, setPreco] = useState("");
-  const [filtroCampo, setFiltroCampo] = useState("nome");   // campo padrão
-  const [filtroValor, setFiltroValor] = useState("");       // valor digitado
+  const [userUid, setUserUid] = useState(null);
 
+  // Estados para filtro
+  const [filtroCampo, setFiltroCampo] = useState("nome");
+  const [filtroValor, setFiltroValor] = useState("");
 
+  // 🔎 Recupera usuário logado e carrega serviços da subcoleção
   useEffect(() => {
-    const dados = localStorage.getItem("servicos");
-    if (dados) setServicos(JSON.parse(dados));
+    const unsub = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setUserUid(user.uid);
+        const userDoc = doc(db, "usuarios", user.uid);
+        const snap = await getDocs(collection(userDoc, "servicos"));
+        setServicos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } else {
+        setUserUid(null);
+        setServicos([]);
+      }
+    });
+    return () => unsub();
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("servicos", JSON.stringify(servicos));
-  }, [servicos]);
-
-  const salvarServico = (e) => {
+  const salvarServico = async (e) => {
     e.preventDefault();
     if (!nome.trim() || !duracao.trim() || !preco.trim()) return;
 
-    const novo = { id: Date.now(), nome, duracao, preco };
-    setServicos([...servicos, novo]);
-    setNome(""); setDuracao(""); setPreco("");
+    try {
+      const userDoc = doc(db, "usuarios", userUid);
+      const servRef = collection(userDoc, "servicos");
+
+      const novoDoc = await addDoc(servRef, {
+        nome,
+        duracao,
+        preco,
+        createdAt: new Date()
+      });
+
+      setServicos([...servicos, { id: novoDoc.id, nome, duracao, preco }]);
+      setNome("");
+      setDuracao("");
+      setPreco("");
+    } catch (error) {
+      console.error("Erro ao salvar serviço:", error);
+    }
   };
 
-  const removerServico = (id) => {
-    setServicos(servicos.filter(s => s.id !== id));
+  const removerServico = async (id) => {
+    try {
+      const userDoc = doc(db, "usuarios", userUid);
+      const servDoc = doc(userDoc, "servicos", id);
+      await deleteDoc(servDoc);
+      setServicos(servicos.filter((s) => s.id !== id));
+    } catch (error) {
+      console.error("Erro ao remover serviço:", error);
+    }
   };
 
   return (
@@ -97,11 +137,15 @@ export default function Servicos() {
           .map((s) => (
             <li key={s.id} className="flex justify-between items-center p-2 bg-base-200 rounded">
               <span>{s.nome} — {s.duracao} — R$ {s.preco}</span>
-              <button className="btn btn-error btn-sm" onClick={() => removerServico(s.id)}>Remover</button>
+              <button
+                className="btn btn-error btn-sm"
+                onClick={() => removerServico(s.id)}
+              >
+                Remover
+              </button>
             </li>
           ))}
       </ul>
-
     </div>
   );
 }

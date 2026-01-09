@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import SHA256 from "crypto-js/sha256"; // biblioteca para hash
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { auth, db } from "../firebase"; 
+import { doc, setDoc } from "firebase/firestore";
 
 export default function Register() {
   const navigate = useNavigate();
@@ -10,35 +12,41 @@ export default function Register() {
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
 
-  const handleRegister = (e) => {
+  const handleRegister = async (e) => {
     e.preventDefault();
     setErro("");
     setSucesso("");
 
-    // pega lista de usuários já cadastrados
-    const usuarios = JSON.parse(localStorage.getItem("usuarios")) || [];
+    try {
+      // Cria usuário no Firebase Auth
+      const userCredential = await createUserWithEmailAndPassword(auth, email, senha);
+      const user = userCredential.user;
 
-    const emailNorm = email.trim().toLowerCase();
-    const existe = usuarios.find((u) => u.email === emailNorm);
+      // Atualiza o perfil com o nome
+      await updateProfile(user, { displayName: nome });
 
-    if (existe) {
-      setErro("Usuário já cadastrado, cadastre um novo usuário.");
-      return;
+      // Salva dados extras no Firestore
+      await setDoc(doc(db, "usuarios", user.uid), {
+        nome: nome,
+        email: email,
+        createdAt: new Date()
+      });
+
+      setSucesso("Usuário cadastrado com sucesso!");
+      setNome(""); setEmail(""); setSenha("");
+
+      // Redireciona para login após cadastro
+      setTimeout(() => navigate("/login"), 1500);
+    } catch (error) {
+      console.error(error);
+      if (error.code === "auth/email-already-in-use") {
+        setErro("Usuário já cadastrado, cadastre um novo usuário.");
+      } else if (error.code === "auth/weak-password") {
+        setErro("A senha deve ter pelo menos 6 caracteres.");
+      } else {
+        setErro("Erro ao cadastrar. Tente novamente.");
+      }
     }
-
-    // gera hash da senha
-    const senhaHash = SHA256(senha).toString();
-
-    // adiciona novo usuário
-    const novoUsuario = { nome: nome.trim(), email: emailNorm, senha: senhaHash };
-    usuarios.push(novoUsuario);
-    localStorage.setItem("usuarios", JSON.stringify(usuarios));
-
-    setSucesso("Usuário cadastrado com sucesso!");
-    setNome(""); setEmail(""); setSenha("");
-
-    // redireciona para login após cadastro
-    setTimeout(() => navigate("/login"), 1500);
   };
 
   return (
